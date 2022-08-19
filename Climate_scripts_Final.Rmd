@@ -1,0 +1,1931 @@
+---
+title: "Public perceptions on human health risks of climate change in Cyprus: 2018 and 2021 survey results"
+author: "Corina Konstantinou-Christina Xeni"
+date: "August 2022"
+output:
+  html_document: default
+  pdf_document: default
+  word_document: default
+geometry: margin=1.5cm
+editor_options:
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, results = "asis", warning = FALSE, message = FALSE)
+```
+
+The script was prepared for the statistical analysis of the data collected from the online survey, with the aim to explore the Cypriot perceptions regarding climate-related health risks in 2018 and 2021. The tables in SI and MS do not appear in the order they appear in the output and in some cases the output tables were merged.
+
+
+```{r libraries, include=FALSE}
+
+r = getOption("repos")
+r["CRAN"] = "http://cran.us.r-project.org"
+options(repos = r)
+
+## Prepare workspace & install libraries
+rm(list = ls(all = TRUE))
+
+ipak <- function(pkg){
+  new.pkg <- pkg[!(pkg %in% installed.packages()[, "Package"])]
+  if (length(new.pkg)) 
+    install.packages(new.pkg, dependencies = TRUE)
+  sapply(pkg, require, character.only = TRUE)
+}
+
+# usage
+packages <- c("readxl","plyr","dtplyr","data.table","tidyr","knitr",
+              "tibble","Hmisc","tableone","compare","stargazer",
+              "readr","psych","ggplot2","sjPlot","tidyverse","lubridate",
+              "eeptools", "Rcpp", "janitor", "stringr","dplyr",
+              "texreg","reshape","scales","FSA","NADA",
+              "haven", "sjPlot", "forcats","ggpubr","cowplot","ggstatsplot","hrbrthemes","viridis")
+
+ipak(packages)
+
+```
+
+```{r data_reading, include=FALSE}
+
+
+#The data file "ClimateAndHealthSurv_DATA_2021-11-02_1306.csv" was downloaded from REDCap on 15/11/2021.
+# contains 383 observations and 319 variables.
+
+# read data 
+
+q_EN_GR <- read.csv("rawdata/ClimateAndHealthSurv_DATA_2021-11-02_1306.csv", header=T, sep=",") %>%
+  clean_names ()
+dim(q_EN_GR) #383 319
+
+#str(q_EN_GR, list.len=ncol(q_EN_GR))
+
+q_EN_GR_clean_a <- q_EN_GR  %>%
+ #include only completed questionnaires 
+  filter(form_1_complete == 2) %>%
+  #rename ID variable
+  dplyr::rename(ID = names(.)[1],
+                #correct name for politicians
+                politicians_en=politicans, 
+                #correct name for prostate cancer
+                prostate_cancer_en = prostatic_cancer)
+dim(q_EN_GR_clean_a)# 207 319-There are 207 completed
+
+#Separate the q_EN_GR_clean_a in two datasets. The first contain the Greek questionnaires and the second contain the English questionnaires 
+
+#Keep only Greek questionnaires 
+q_EN_GR_clean_Gr<-q_EN_GR_clean_a %>%
+  filter(language == 1)
+q_EN_GR_clean_Gr1<-q_EN_GR_clean_Gr[,5:161] 
+
+
+#Make as factor all variables from q_EN_GR_clean_Gr1 dataset except the variable age
+q_EN_GR_clean_Gr1<- q_EN_GR_clean_Gr1 %>% 
+  mutate(across(!age,~as_factor(.)))
+
+#Make as data frame the dataset q_EN_GR_clean_Gr1
+q_EN_GR_clean_Gr1<-as.data.frame(q_EN_GR_clean_Gr1)
+dim(q_EN_GR_clean_Gr1) #192 157-There are 192 Greek completed questionnaires
+
+#Exclude respondents not living in Cyprus
+q_EN_GR_clean_Gr2<-droplevels(subset(
+ q_EN_GR_clean_Gr1,!(district == "7")))
+dim(q_EN_GR_clean_Gr2) #189 157-There are 3 participants who did not live in Cyprus
+
+#Merge the level 6 and 4 from occupational_status
+#Merged because the English questionnaire lacks level 6. So we combine 4 with 6 in Greek so as not to delete 6 completely
+q_EN_GR_clean_Grr<-q_EN_GR_clean_Gr2
+levels(q_EN_GR_clean_Grr$occupational_status)[levels(q_EN_GR_clean_Grr$occupational_status)=="6"] <-"4"
+
+#Include only English questionnaires 
+q_EN_GR_clean_En<-q_EN_GR_clean_a  %>%
+  filter(language == 2)
+q_EN_GR_clean_En1<-q_EN_GR_clean_En[,162:318] 
+
+#Make as factor all variables from q_EN_GR_clean_En1 dataset except the  variable age_en
+q_EN_GR_clean_En1<-q_EN_GR_clean_En1 %>% 
+  mutate(across(!age_en,~as_factor(.)))
+
+
+#Make as data frame the dataset q_EN_GR_clean_Gr1
+q_EN_GR_clean_En1<-as.data.frame(q_EN_GR_clean_En1)
+dim(q_EN_GR_clean_En1) #15 157-There are 15 English completed questionnaires
+
+# exclude respondents not living in Cyprus
+q_EN_GR_clean_En2<-droplevels(subset(
+ q_EN_GR_clean_En1,!(district_en == "7")))
+dim(q_EN_GR_clean_En2) #13 157-There are 2 participants who did not live in Cyprus
+
+#Merge the level 3 and 4 from these variables
+#Merged because the English questionnaire has extra levels for these variables in relation to the corresponding variables in Greek questionnaire.
+q_EN_GR_clean_Enr<- q_EN_GR_clean_En2 %>% 
+  mutate_at(c("lifefull_en","nervous_en","not_satisfied_en","calm_en","energetic_en",
+              "melancholy_en","exhausted_en","happy_en","tired_en"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "1",
+    "2" = "2",
+    "3" = "3",
+    "4" = "3",
+    "5" = "4",
+    "6"="5")))
+
+#Make the following variables as NA, because when we will join the English with Greek we want to skip these variables. It has one less level.
+#We insert as Na these questions because they not include the level Not influenced. 
+na<- function(x) rep(NA,length(x))
+q_EN_GR_clean_En3<- q_EN_GR_clean_Enr %>% 
+  mutate_at(c("increase_temp_en","extreme_weather_en",
+              "atmospheric_pollution_en","water_pollution_en",
+              "food_contamination_en","soil_pollution_en",
+              "radiation_en"),na)
+
+#Remove the en from the names of q_EN_GR_clean_En3. We want the two dataset (Greek and English questionnaires) to have the same column names
+names(q_EN_GR_clean_En3) = gsub(pattern = "_en", replacement = "", x = names(q_EN_GR_clean_En3))
+
+rm(list = setdiff(ls(), c("q_EN_GR_clean_Grr","q_EN_GR_clean_En3")))
+
+
+#Check if the names of data sets q_EN_GR_clean_Enr and q_EN_GR_clean_Grr are same.
+names(q_EN_GR_clean_En3)==names(q_EN_GR_clean_Grr) #Are all not the same
+
+str(q_EN_GR_clean_En3, list.len=ncol(q_EN_GR_clean_En3))
+
+str(q_EN_GR_clean_Grr, list.len=ncol(q_EN_GR_clean_Grr))
+
+#Give in two datasets the same names
+names(q_EN_GR_clean_Grr)<-names(q_EN_GR_clean_En3) 
+
+#Create a new data set with all questionnaires (Greek and English)
+q_EN_GR_clean1<-rbind(q_EN_GR_clean_Grr,q_EN_GR_clean_En3)
+q_EN_GR_clean1<-as.data.frame(q_EN_GR_clean1)
+
+rm(list = setdiff(ls(), c("q_EN_GR_clean1")))
+
+#Revalue variables levels to their actual names based on codebook
+q_EN_GR_clean1a<- q_EN_GR_clean1 %>% 
+  mutate_at("health_status",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Excellent",
+    "2" = "Very good",
+    "3" = "Good",
+    "4" = "Average",
+    "5" = "Poor")))%>%
+  mutate_at("health_comp_to_last_yr",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Much better now than one year ago",
+    "2" = "Somewhat better now than one year ago",
+    "3" = "About the same",
+    "4" = "Somewhat worse than one year ago",
+    "5" = "Much worse than one year ago")))%>%
+  mutate_at(c("demandingactivities", "moderate_activities","carry_grocery_bags", "stairs_levels","stairs_one_level","body_bending","walking_one","walking_few_plots","walking_one_plot","bath"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Yes, limited a lot",
+    "2" = "Yes, limited a little",
+    "3" = "No, not limited at all")))%>%
+  mutate_at(c("work_time", "achieve_less","limits_work", "difficulties","work_time_anx","achieve_less_anx","difficulty_anx"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Yes",
+    "2" = "No")))%>%
+  mutate_at(c("social_activities","climate_change"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Not at all",
+    "2" = "Slightly",
+    "3" = "Moderately",
+    "4" = "Quite a bit",
+    "5" = "Extremely")))%>%
+ mutate_at(c("nervous", "not_satisfied","calm", "energetic","melancholy","exhausted","happy","tired","lifefull"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "All of the time",
+    "2" = "Most of the time",
+    "3" = "Some of the time",
+    "4" = "A little of the time",
+    "5"="None of the time")))%>%
+   mutate_at("social_contacts",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "All of the time",
+    "2" = "Most of the time",
+    "3" = "Some of the time",
+    "4" = "A little of the time",
+    "5"="None of the time")))%>% 
+  mutate_at(c("sick", "healthy","worse_health", "perfect_health"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Definitely true",
+    "2" = "Mostly true",
+    "3" ="Don’t know",
+    "4" = "Mostly false",
+    "5" = "Definitely false")))%>%
+   mutate_at(c("accidents", "asthma_patients","cancer_patients", "obese_people","type2_diabetes","hypertension_patients","infectious_disease","mental_health"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Much more",
+    "2" = "Somewhat more",
+    "3" = "About the same",
+    "4" = "Somewhat less",
+    "5"="Much less")))%>%
+   mutate_at(c("increase_temp", "extreme_weather","atmospheric_pollution", "water_pollution","food_contamination","soil_pollution","radiation"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Extremely influenced",
+    "2" = "Quite a bit influenced",
+    "3" = "Moderately influenced",
+    "4" = "Slightly influenced",
+    "5"="Not influenced")))%>%
+  mutate_at("factors_affect_health",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Very important",
+    "2" = "Somewhat important",
+    "3" = "Not too important",
+    "4" = "Not important at all",
+    "5" = "Don't know")))%>%
+   mutate_at(c("atmospheric_pollution_h", "water_pollution_h","chemicals", "waste","heatwave","floods","scarcity","rural_pollution" ,"noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation","covid"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Very serious danger",
+    "2" = "Somewhat serious danger",
+    "3" = "Somewhat minor danger",
+    "4" = "No danger at all",
+    "5"="Don't know")))%>%
+mutate_at(c("cancer_child", "infertility","asthma_child", "allergies","genetic_abnormalities","breast_cancer","hypertension","flu" ,"prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis","infectious_diseases_1","covid19","depression"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Major role",
+    "2" = "Minor role",
+    "3" = "No role at all",
+    "4" = "Don't know")))%>%
+  mutate_at(c("action1", "action2"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "A great deal",
+    "2" = "Moderate amount",
+    "3" = "A little",
+    "4" = "Nothing at all",
+    "5"="Don't know")))%>%
+   mutate_at(c("info_1", "info_2","info_3","info_4","info_5","info_6","info_7","info_8","info_9","info_10","info_11","info_12","info_13","info_14"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "0" = "No",
+    "1" = "Yes")))%>%
+  mutate_at(c("internet","news","movies", "discussions","newspapers","doctors","educational_material","publication" ,"radio","magazines","books","events","politicians"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Extremely reliable",
+    "2" = "Quite a bit reliable",
+    "3" = "Moderately reliable",
+    "4" = "Slightly reliable",
+    "5"="Not at all reliable")))%>%
+   mutate_at(c("communityvironment","effects_climate_change","protect_health_issues", "protect_from_cl_change"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Yes, I have enough information",
+    "2" = "No, I would like more information",
+    "3" = "No, and I don't wish to have more information",
+    "4" = "Don't know")))%>%
+   mutate_at(c("want_info_1", "want_info_2","want_info_3","want_info_4","want_info_5","want_info_6","want_info_7","want_info_8","want_info_9","want_info_10","want_info_11","want_info_12","want_info_13","want_info_14"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "0" = "No",
+    "1" = "Yes")))%>%
+  mutate_at("sex",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Female",
+    "2" = "Male",
+    "3" = "Prefer not to say")))%>%
+  mutate_at("place_of_birth",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Large city",
+    "2" = "Suburb near large city ",
+    "3" = "Small city",
+    "4"=" Rural")))%>%
+  mutate_at("education_level",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "I have never been to school",
+    "2" = "I have not completed Primary School",
+    "3" = "Primary School",
+    "4"="Middle School",
+    "5"="High School/ Vocational High School (diploma)",
+    "6"="Higher (after high school) non-tertiary Education",
+    "7"="Higher Tertiary Education (non-university)",
+    "8"="University (Bachelor degree)",
+    "9"="University- Postgraduate (Master's Degree)",
+    "10"="PhD")))%>%
+   mutate_at("occupational_status",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Employed/ self-employed",
+    "2" = "Retired",
+    "3" = "Student",
+    "4"="Unemployed/ Out of employment ",
+    "5"="Housekeeping")))%>%
+  mutate_at("district",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Paphos",
+    "2" = "Limassol",
+    "3" = "Nicosia",
+    "4"="Famagusta",
+    "5"="Larnaka",
+    "6"="Other",
+    "7"="Not living in Cyprus")))%>%
+  mutate_at("area_discr",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Large city",
+    "2" = "Suburb near large city ",
+    "3" = "Small city",
+    "4"=" Rural")))%>%
+    mutate_at("rate_area",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Very good",
+    "2" = "Somewhat good",
+    "3" = "Somewhat bad",
+    "4"="Very bad",
+    "5"="Don't know")))%>%
+  mutate_at("marital_status",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = " Unmarried",
+    "2" = "Married",
+    "3" ="Divorced",
+    "4"="Widowed")))%>%
+   mutate_at(.vars = "children",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "1" = "Yes",
+    "2" = "No")))%>%
+  mutate_at(c("worse_effect_1", "worse_effect_2","worse_effect_3","worse_effect_4","worse_effect_5","worse_effect_6","worse_effect_7","worse_effect_8","worse_effect_9","worse_effect_10","worse_effect_11","worse_effect_12","worse_effect_13"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "0" = "No",
+    "1" = "Yes")))
+
+str(q_EN_GR_clean1a, list.len=ncol(q_EN_GR_clean1a))
+
+#Create a new variable for the age categories - 3 age groups 8-34 vs 35-54 vs 54+
+q_EN_GR_clean1a$age<-as.numeric(q_EN_GR_clean1a$age)
+
+q_EN_GR_clean1a$age_cat <- cut(q_EN_GR_clean1a$age,
+                               breaks=c(-Inf, "34", "54",Inf),
+                               labels=c("18-34","35-54",">54"))
+q_EN_GR_clean1a$age_cat<-as.factor(q_EN_GR_clean1a$age_cat)
+
+#Variable selection for demographics
+
+demographicsDescr<-c("age","age_cat","sex","place_of_birth","education_level","occupational_status","district",
+                      "area_discr","rate_area","marital_status","children")
+
+categordemoDescr<-c("sex","age_cat","place_of_birth","education_level","occupational_status","district","area_discr","rate_area","marital_status","children")
+
+#Demographic dataset:
+#Create the data set that used for table 1 (ms)
+q_EN_GR_cleand<-q_EN_GR_clean1a %>% select("sex","age_cat","place_of_birth","education_level","occupational_status","district","area_discr","rate_area","marital_status","children")
+
+#Create the variable year q_EN_GR_cleand data set
+year<-rep("2021",each=dim(q_EN_GR_cleand)[1])
+
+#Add the variable year in the 
+q_EN_GR_clean_dy<- q_EN_GR_cleand %>% cbind(year)
+
+```
+
+```{r Initial data for 2018}
+
+# The data file "Content_Export_CII_Questionnaire_CII_Questionnaire_EN_181218.xls" 
+# contains 194 observations and 113 variables. 
+# The below actions have been done prior to importing the file into R.
+#- 3 first rows have been deleted in order for the file to include only questions and responses.
+#- File has been saved as a csv file: "Content_Export_CII_Questionnaire_CII_Questionnaire_EN_181218_only_responses.csv"
+
+#Added here after reviewers suggestions (in order to include p-values in tabe 1).
+
+# read data & clean column names using underscores instead of fullstops 
+Q_EN <- read.csv("rawdata/Content_Export_CII_Questionnaire_EN_181218_only_responses.csv", header=T, sep=",") %>%
+  clean_names ()
+
+#str(Q_EN, list.len=ncol(Q_EN))
+
+# remove the characters until first underscore from all column names 
+names(Q_EN) <- gsub("[^_]###Table S._(.###Table S.)", "\\1", names(Q_EN))
+
+#str(Q_EN, list.len=ncol(Q_EN))
+
+# convert variables from characters into factors
+
+Q_EN = Q_EN %>% mutate_if(is.character,funs(factor(.)))
+
+# exclude respondents not living in Cyprus 
+q_2018<-droplevels(subset(
+  Q_EN,!(x6_where_do_you_currently_live == "Not living in Cyprus")))  
+# no of participants not living in Cyprus = 9
+
+# rename the educational status question as it is a very long question
+q_2018<- q_2018%>% 
+  dplyr::rename(educational_level  = x4_which_is_the_highest_level_of_education_which_you_have_successfully_completed_please_include_any_training_that_you_received_within_your_work) 
+
+# create age categories - 3 age groups -> 18-34,35-54,>55
+q_2018$age_cat <- cut(q_2018$x1_age,
+                               breaks=c(-Inf, "34", "54", Inf),
+                               labels=c("18-34","35-54",">54"))
+
+q_2018_sah<-q_2018
+
+#Demographic dataset:
+q_2018_sahd<-q_2018_sah%>% select("x3_sex","age_cat","x2_how_would_you_describe_your_place_of_birth","educational_level","x5_professional_status","x6_where_do_you_currently_live","x7_how_would_you_describe_your_place_of_residence","x8_how_would_you_rate_your_community_as_a_place_to_live","x9_what_is_your_marital_status","x10_do_you_have_children")
+
+#Add the variable year
+
+year<-rep("2018",each=dim(q_2018_sahd)[1])
+
+q_2018_sah_dy<- q_2018_sahd %>% cbind(year)
+
+
+#Rename the columns of data set q_2018_sah_dy to have the same names as the dataset q_EN_GR_clean_dy
+names(q_2018_sah_dy)<-names(q_EN_GR_clean_dy)
+
+#Change the level of some variables to be the same level of the data set q_EN_GR_clean_dy
+q_2018_sah_dyn<- q_2018_sah_dy %>% 
+  mutate_at("place_of_birth",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Suburb near large city" = "Suburb near large city ",
+    "Rural" = " Rural")))%>%
+  mutate_at("education_level",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "High School/Vocational High School (diploma)" = "High School/ Vocational High School (diploma)",
+    "University-Postgraduate (only Master's degree)"="University- Postgraduate (Master's Degree)",
+    "I have not completed primary school"="I have never been to school",
+    "Higher Tertiary Education (non-Univesity)"="Higher Tertiary Education (non-university)")))%>% 
+  mutate_at("occupational_status",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Employed / self-employed" = "Employed/ self-employed",
+    "Unemployed / Out of employment" = "Unemployed/ Out of employment ")))%>% 
+ mutate_at("district",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Famagusta district" = "Famagusta",
+    "Larnaca district" = "Larnaka",
+    "Limassol district"="Limassol",
+    "Nicosia district"="Nicosia",
+    "Paphos district"="Paphos",
+    "Other district"="Other")))%>%
+  mutate_at("area_discr",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Rural" = " Rural",
+    "Suburb near large city" = "Suburb near large city ")))%>%
+  mutate_at("marital_status",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Unmarried" = " Unmarried")))
+
+```
+
+```{r together}
+
+#Put together the demographic variables from each year 2018-2021
+
+Demographic_data_together<-rbind(q_EN_GR_clean_dy,q_2018_sah_dyn)
+
+```
+
+### Table 1 - Demographic characteristics - Study participants
+
+`r kable(print(CreateCatTable(vars=c("sex","age_cat","place_of_birth","education_level","occupational_status","district","area_discr","rate_area","marital_status","children"),strata="year", data=Demographic_data_together,testApprox= chisq.test)))`
+
+
+```{r health_assessment}
+rm(list = setdiff(ls(), c("q_EN_GR_clean1a","q_2018_sah","q_2018")))
+
+#Go back to the dataset q_EN_GR_clean1a about questionnaires of 2021 (both greek and english).
+
+#Here we will deal with health assessment part using the Short-Form (SF) 36 Health Survey. 
+#We used seven out of the eight concepts/scales of the survey (physical functioning, role limitations due to physical health problems, role limitations due to emotional problems, social functioning, energy/fatigue, emotional well-being and general health perceptions), to describe the self-assessed health status of the participants and the question on perceived change in health. The range of the scores for these scales is by 0 and 100, with a higher score indicating a more favourable health state for all scales, except the health change scale. The health change scale, which is comprised of only one item, shows the perceived difference by the current health status and the health status one year before, with a higher score indicating that the current health status is perceived as better compared to the previous year’s health status
+
+#Create the dataset q_EN_GR_cleanr
+q_EN_GR_cleanr<-q_EN_GR_clean1a #These two datastes (q_EN_GR_cleanr and q_EN_GR_clean1a) will be exactly the same they will just have different column names. This is because sometimes one is more practical and sometimes the other.
+
+variables_List<-as_tibble(colnames(q_EN_GR_clean1a))
+
+variables_List<-mutate(variables_List, code=paste0("q_", rownames(variables_List)))   
+
+#Create a list with questions and rename questions with q_i etc for easier use
+names(q_EN_GR_cleanr) <- paste("q_", 1:ncol(q_EN_GR_cleanr), sep="")
+
+
+# STEP 1: change original response category to recoded value: 
+
+# questions 2,3,21,33,35 from 1,2,3,4,5 to 100,75,50,25,0
+
+# mutate all in one using pipes
+q_EN_GR_cleanr$q_2 <- revalue(q_EN_GR_cleanr$q_2,
+  replace = c(
+    "Excellent" = "100",
+    "Very good" = "75",
+    "Good" = "50",
+    "Average" = "25",
+    "Poor" = "0"))
+
+q_EN_GR_cleanr$q_3 <- revalue(q_EN_GR_cleanr$q_3,
+  replace = c(
+    "Much better now than one year ago" = "100",
+    "Somewhat better now than one year ago" = "75",
+    "About the same" = "50",
+    "Somewhat worse than one year ago" = "25",
+    "Much worse than one year ago" = "0"))
+
+q_EN_GR_cleanr$q_21 <- revalue(q_EN_GR_cleanr$q_21,
+  replace = c(
+    "Not at all" = "100",
+    "Slightly" = "75",
+    "Moderately" = "50",
+    "Quite a bit" = "25",
+    "Extremely" = "0"))
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+                mutate_at(c("q_33","q_35"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = 
+                                                        c("Definitely true" = "100",
+                                                          "Mostly true" = "75",
+                                                          "Don’t know" = "50",
+                                                          "Mostly false" = "25",
+                                                          "Definitely false" = "0")))
+# questions 4-13 from 1,2,3 to 0,50,100
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+                mutate_at(c("q_4","q_5","q_6",
+                            "q_7","q_8","q_9","q_10",
+                            "q_11","q_12","q_13"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                        "Yes, limited a lot" = "0",
+                                                        "Yes, limited a little" = "50",
+                                                        "No, not limited at all" = "100")))
+# questions 14-20 from 1,2 to 0,100
+
+q_EN_GR_cleanr<- q_EN_GR_cleanr%>% 
+                mutate_at(c("q_14","q_15","q_16",
+                            "q_17","q_18","q_19","q_20"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                        "Yes" = "0", 
+                                                        "No" = "100")))
+# questions 22,25,26,29 from 1,2,3,4,5,6 to 100,80,60,40,20,0
+
+q_EN_GR_cleanr<- q_EN_GR_cleanr%>% 
+                mutate_at(c("q_22","q_25","q_26","q_29"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                        "All of the time" = "100",
+                                                        "Most of the time" = "75",
+                                                        "Some of the time" = "50",
+                                                        "A little of the time" = "25",
+                                                        "None of the time" = "0")))
+                                                        
+# questions 23,24,27,28,30 from 1,2,3,4,5,6 to 0,20,40,60,80,100
+
+q_EN_GR_cleanr<- q_EN_GR_cleanr%>% 
+                mutate_at(c("q_23","q_24","q_27","q_28","q_30"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                         "All of the time" = "0",
+                                                         "Most of the time" = "25",
+                                                         "Some of the time" = "50",
+                                                         "A little of the time" = "75",
+                                                         "None of the time" = "100")))
+# questions 31,32,34 from 1,2,3,4,5 to 0,25,50,75,100
+
+q_EN_GR_cleanr$q_31 <- revalue(q_EN_GR_cleanr$q_31,
+  replace = c(
+    "All of the time" = "0",
+    "Most of the time" = "25",
+    "Some of the time" = "50",
+    "A little of the time" = "75",
+    "None of the time" = "100"))
+
+q_EN_GR_cleanr<- q_EN_GR_cleanr%>% 
+                mutate_at(c("q_32","q_34"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                         "Definitely true" = "0",
+                                                         "Mostly true" = "25",
+                                                         "Don’t know" = "50",
+                                                         "Mostly false" = "75",
+                                                        "Definitely false" = "100")))
+
+
+#Change variable from factors into numeric
+as.numeric.factor <- function(x) {as.numeric(levels(x))[x]}  
+
+q_EN_GR_cleanr[, c("q_2","q_3","q_4","q_5","q_6",
+                  "q_7","q_8","q_9","q_10","q_11","q_12",
+                  "q_13","q_14","q_15","q_16","q_17","q_18",
+                  "q_19","q_20","q_21","q_22","q_23","q_24",
+                  "q_25","q_26","q_27","q_28","q_29","q_30",
+                  "q_31","q_32","q_33","q_34","q_35")]<-lapply(
+q_EN_GR_cleanr[, c("q_2","q_3","q_4","q_5","q_6",
+                  "q_7","q_8","q_9","q_10","q_11","q_12",
+                  "q_13","q_14","q_15","q_16","q_17","q_18",
+                  "q_19","q_20","q_21","q_22","q_23","q_24",
+                  "q_25","q_26","q_27","q_28","q_29","q_30",
+                  "q_31","q_32","q_33","q_34","q_35")], as.numeric.factor)
+
+# STEP 2: Average items to form scales
+
+# Physical functioning 4-13
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+    dplyr::mutate(phys_func = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('q_4','q_5',
+                                    'q_6','q_7','q_8',
+                                    'q_9','q_10','q_11','q_12','q_13')))))
+
+# Role limitations due to physical health	14-17
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+    dplyr::mutate(phys_health = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('q_14','q_15','q_16','q_17')))))
+
+# Role limitations due to emotional problems	18-20
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+    dplyr::mutate(emotion_prob = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('q_20','q_18','q_19')))))
+        
+# Energy/fatigue	22,26,28,30
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+    dplyr::mutate(energy_fatigue = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('q_22','q_26',
+                                    'q_28','q_30')))))
+
+# Emotional well-being	23,24,25,27,28
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+    dplyr::mutate(emotion_wellbeing = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('q_23','q_25','q_24',
+                                    'q_27','q_28')))))
+
+# Social functioning	21,31
+
+q_EN_GR_cleanr <- q_EN_GR_cleanr %>% 
+    dplyr::mutate(social_func = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('q_21','q_31')))))
+
+# General health	2,32,33,34,35
+
+q_EN_GR_cleanr<- q_EN_GR_cleanr %>% 
+    dplyr::mutate(general_health = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('q_2','q_35','q_32',
+                                    'q_33','q_34')))))
+
+#Rename q_3_ to actual name for including it in table with rest scales
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == 'q_3'] <- 'health_change'
+
+#Variable selection for self-assessed health table
+health_descr<-c("phys_func","phys_health","emotion_prob","energy_fatigue",
+                "emotion_wellbeing","social_func","general_health", "health_change")
+                
+                
+# Step 3: Assess reliability/internal consistency using Cronbach's alpha
+# https://mattchoward.com/introduction-to-cronbachs-alpha/ 
+# https://mattchoward.com/calculating-cronbachs-alpha-in-r/ 
+
+# separate each scale in a different dataframe, including only the columns 
+# that contain data for each scale
+
+# Physical functioning 4-13
+
+phys_func <- subset(q_EN_GR_cleanr, select=c('q_4','q_5',
+                                    'q_6','q_7','q_8',
+                                    'q_9','q_10','q_11','q_12','q_13'))
+
+# This function reports two estimates: Cronbach's coefficient alpha and Guttman's lambda_6
+s1 <- psych::alpha(phys_func)
+
+# Role limitations due to physical health	14-17
+
+phys_health <- subset(q_EN_GR_cleanr, select=c(
+ 'q_17','q_14','q_15','q_16'))
+
+s2 <- psych::alpha(phys_health)
+
+# Role limitations due to emotional problems	18-20
+
+emotion_prob <- subset(q_EN_GR_cleanr, select=c(
+ 'q_20','q_18','q_19'))
+
+s3 <- psych::alpha(emotion_prob)
+
+# Energy/fatigue	22,26,28,30
+
+energy_fatigue <- subset(q_EN_GR_cleanr, select= c('q_22','q_26',
+                                    'q_28','q_30'))
+
+s4 <- psych::alpha(energy_fatigue, check.keys=TRUE)
+
+# Emotional well-being		23,24,25,27,28
+
+emotion_wellbeing <- subset(q_EN_GR_cleanr, select=c('q_23','q_25','q_24',
+                                    'q_27','q_28'))
+
+s5 <- psych::alpha(emotion_wellbeing)
+
+# Social functioning	21,31
+
+social_func <- subset(q_EN_GR_cleanr, select=c(
+ 'q_21','q_31'))
+
+s6 <- psych::alpha(social_func)
+
+# General health	2,32,33,34,35
+
+general_health <- subset(q_EN_GR_cleanr, select=c(
+ 'q_2','q_32','q_33',
+ 'q_34','q_35'))
+
+s7 <- psych::alpha(general_health)
+```
+
+### Table 2 and 3 - Self-assessed health
+
+`r kable(print(CreateTableOne(health_descr, data=q_EN_GR_cleanr)))`
+
+`r kable(print(CreateTableOne(health_descr, data=q_EN_GR_cleanr, testNonNormal = kruskal.test, smd=F),nonnormal=health_descr), caption="Scales based on the RAND 36-item Health Survey")`
+
+Cronbach's alpha for scales:
+
+- Physical functioning: 
+`r kable(print(s1$total))`
+
+- Role limitations due to physical health: 
+`r kable(print(s2$total))`
+
+- Role limitations due to emotional problems: 
+`r kable(print(s3$total))`
+
+- Energy/fatigue: 
+`r kable(print(s4$total))`
+
+- Emotional well-being: 
+`r kable(print(s5$total))`
+
+- Social functioning: 
+`r kable(print(s6$total))`
+
+- General health: 
+`r kable(print(s7$total))`
+
+```{r Generate n_freq function and rename some variables}
+
+rm(list = setdiff(ls(), c("q_EN_GR_cleanr","q_EN_GR_clean1a","q_2018","q_2018_sah")))
+
+
+# function for calculating frequency - number
+n_freq<-function(x, total, option) {
+  n<-sum(x==option)
+  freq<-round((n/total)*100, digits=0)
+  paste0(n, " (", freq, ")")
+}
+
+#Rename some variables
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_52"] <- "Air pollution"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_53"] <- "Chemicals in water and food"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_54"] <- "Agricultural pollution"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_55"] <- "Noise pollution"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_56"] <- "Consumption habits"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_57"] <- "Invasive species"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_58"] <- "Water pollution"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_59"] <- "Water scarcity"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_60"] <- "(Toxic) waste"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_61"] <- "Exhaustion of natural resources"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_62"] <- "Biodiversity loss"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_63"] <- "Soil degradation"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_64"] <- "Flooding"
+#names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_65"] <- "Environmental factors affect health"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_101"] <- "Social media and the Internet"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_102"] <- "Television news"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_103"] <- "Films and documentaries on television"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_104"] <- "Conversations with relatives, family, friends, neighbours, etc."
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_105"] <- "Newspapers"
+
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_106"] <- "Medical doctors"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_107"] <- "Education/ lectures/ courses"
+
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_108"] <- "Publications, brochures or information materials"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_109"] <- "The radio"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_110"] <- "Magazines"
+
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_111"] <- "Books"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_112"] <- "Events (conferences, fairs, exhibitions, festivals, etc.)"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_113"] <- "Politicians"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_114"] <- "Other"
+
+
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_133"] <- "From Social media and the Internet"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_134"] <- "From Television news"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_135"] <- "From Films and documentaries on television"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_136"] <- "From Conversations with relatives, family, friends, neighbours, etc."
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_137"] <- "From Newspapers"
+
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_138"] <- "From Medical doctors"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_139"] <- "From Education/ lectures/ courses"
+
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_140"] <- "From Publications, brochures or information materials"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_141"] <- "From The radio"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_142"] <- "From Magazines"
+
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_143"] <- "From Books"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_144"] <- "From Events (conferences, fairs, exhibitions, festivals, etc.)"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_145"] <- "From Politicians"
+names(q_EN_GR_cleanr)[names(q_EN_GR_cleanr) == "q_146"] <- "From Other"
+
+#Remove the NA from these variables that correspond to the English questionnaires
+
+q_45<-na.omit(q_EN_GR_cleanr$q_45) 
+q_46<-na.omit(q_EN_GR_cleanr$q_46)
+q_47<-na.omit(q_EN_GR_cleanr$q_47)
+q_48<-na.omit(q_EN_GR_cleanr$q_48)
+q_49<-na.omit(q_EN_GR_cleanr$q_49)
+q_50<-na.omit(q_EN_GR_cleanr$q_50)
+q_51<-na.omit(q_EN_GR_cleanr$q_51)
+```
+
+### Table. q_116-q_128 How reliable do you consider the following information sources to be (2021)?
+
+ Reliability level  |Extremely reliable     |  Quite a bit reliable 	                                         |Moderately reliable                                                  | Slightly reliable 	      | Not at all reliable       
+--------------|------------------------------------------------------------|-------------------------------------------------------------------|-------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------
+Social media and the Internet	|`r n_freq(q_EN_GR_cleanr$q_116, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_116, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_116, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_116, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_116, nrow(q_EN_GR_cleanr), "Not at all reliable")` 
+Television news	  |`r n_freq(q_EN_GR_cleanr$q_117, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_117, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_117, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_117, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_117, nrow(q_EN_GR_cleanr), "Not at all reliable")`
+Films and documentaries on television|`r n_freq(q_EN_GR_cleanr$q_118, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_118, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_118, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_118, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_118, nrow(q_EN_GR_cleanr), "Not at all reliable")` 
+Conversations with family, friends, neighbours, etc.|`r n_freq(q_EN_GR_cleanr$q_119, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_119, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_119, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_119, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_119, nrow(q_EN_GR_cleanr), "Not at all reliable")` 
+Newspapers	|`r n_freq(q_EN_GR_cleanr$q_120, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_120, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_120, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_120, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_120, nrow(q_EN_GR_cleanr), "Not at all reliable")`  
+Medical doctors	|`r n_freq(q_EN_GR_cleanr$q_121, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_121, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_121, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_121, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_121, nrow(q_EN_GR_cleanr), "Not at all reliable")`
+Eucation/lectures/courses	|`r n_freq(q_EN_GR_cleanr$q_122, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_122, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_122, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_122, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_122, nrow(q_EN_GR_cleanr), "Not at all reliable")`
+Publications, brochures or info materials	|`r n_freq(q_EN_GR_cleanr$q_123, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_123, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_123, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_123, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_123, nrow(q_EN_GR_cleanr), "Not at all reliable")`
+Radio	  |`r n_freq(q_EN_GR_cleanr$q_124, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_124, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_124, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_124, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_124, nrow(q_EN_GR_cleanr), "Not at all reliable")` 
+Magazines	|`r n_freq(q_EN_GR_cleanr$q_125, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_125, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_125, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_125, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_125, nrow(q_EN_GR_cleanr), "Not at all reliable")`
+Books|`r n_freq(q_EN_GR_cleanr$q_126, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_126, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_126, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_126, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_126, nrow(q_EN_GR_cleanr), "Not at all reliable")`  
+Events	|`r n_freq(q_EN_GR_cleanr$q_127, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_127, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_127, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_127, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_127, nrow(q_EN_GR_cleanr), "Not at all reliable")`  
+Politicians	|`r n_freq(q_EN_GR_cleanr$q_128, nrow(q_EN_GR_cleanr), "Extremely reliable")` | `r n_freq(q_EN_GR_cleanr$q_128, nrow(q_EN_GR_cleanr), "Quite a bit reliable")` | `r n_freq(q_EN_GR_cleanr$q_128, nrow(q_EN_GR_cleanr), "Moderately reliable")` | `r n_freq(q_EN_GR_cleanr$q_128, nrow(q_EN_GR_cleanr), "Slightly reliable")` | `r n_freq(q_EN_GR_cleanr$q_128, nrow(q_EN_GR_cleanr), "Not at all reliable")`
+
+
+### Table 4. Choose up to 5 ways of how you receive information regarding environmental health risks (2021)
+- The table below has the correct n but not the correct % as it calculates it based on the total number of responses and not number of participants
+
+`r kable(print(CreateCatTable(vars=c("Social media and the Internet", "Television news", "Films and documentaries on television", "Conversations with relatives, family, friends, neighbours, etc.", "Newspapers", "Medical doctors" , "Education/ lectures/ courses", "Publications, brochures or information materials", "The radio", "Magazines", "Books","Events (conferences, fairs, exhibitions, festivals, etc.)","Politicians","Other"), data=q_EN_GR_cleanr)))`
+
+### Table 5.Choose up to 5 ways of how you would like to receive information regarding environmental health risks (2021)
+- The table below has the correct n but not the correct % as it calculates it based on the total number of responses and not number of participants
+
+`r kable(print(CreateCatTable(vars=c("From Social media and the Internet", "From Television news", "From Films and documentaries on television", "From Conversations with relatives, family, friends, neighbours, etc.", "From Newspapers", "From Medical doctors" , "From Education/ lectures/ courses", "From Publications, brochures or information materials", "From The radio", "From Magazines", "From Books","From Events (conferences, fairs, exhibitions, festivals, etc.)","From Politicians","From Other"), data=q_EN_GR_cleanr)))`
+
+```{r data union for comparisons}
+rm(list = setdiff(ls(), c("q_EN_GR_clean1a","q_2018_sah","q_2018")))
+
+## In this section we will use the q_EN_GR_clean1a dataset instead of q_EN_GR_cleanr because of the column names
+
+#Rename some levels
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_1"] <- "Social media and the Internet"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_2"] <- "Television news"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_3"] <- "Films and documentaries on television"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_4"] <- "Conversations with relatives, family, friends, neighbours, etc."
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_5"] <- "Newspapers"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_6"] <- "Medical doctors"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_7"] <- "Education/ lectures/ courses"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_8"] <- "Publications, brochures or information materials"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_9"] <- "The radio"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_10"] <- "Magazines"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_11"] <- "Books"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_12"] <- "Events (conferences, fairs, exhibitions, festivals, etc.)"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_13"] <- "Politicians"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "info_14"] <- "Others"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_1"] <- "From Social media and the Internet"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_2"] <- "From Television news"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_3"] <- "From Films and documentaries on television"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_4"] <- "From Conversations with relatives, family, friends, neighbours, etc."
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_5"] <- "From Newspapers"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_6"] <- "From Medical doctors"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_7"] <- "From Education/ lectures/ courses"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_8"] <- "From Publications, brochures or information materials"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_9"] <- "From The radio"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_10"] <- "From Magazines"
+
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_11"] <- "From Books"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_12"] <- "From Events (conferences, fairs, exhibitions, festivals, etc.)"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_13"] <- "From Politicians"
+names(q_EN_GR_clean1a)[names(q_EN_GR_clean1a) == "want_info_14"] <- "From Others"
+
+#Remove 1 participant who didn't report his/her sex so that comparisons by sex can be made
+EN_GR_clean_comp2<-droplevels(subset(
+ q_EN_GR_clean1a,!(sex=="Prefer not to say")))
+
+#Put together some levels(Pooling for chi square test)
+q_EN_GR_clean_comp4<- EN_GR_clean_comp2 %>% 
+  mutate_at(c("climate_change"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Not at all"="Moderately or Slightly or Not at all",
+    "Slightly" = "Moderately or Slightly or Not at all",
+    "Moderately"="Moderately or Slightly or Not at all")))%>%
+mutate_at(c("accidents", "asthma_patients","cancer_patients", "obese_people","type2_diabetes","hypertension_patients","infectious_disease","mental_health"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "About the same"="About the same or less",
+    "Somewhat less" = "About the same or less",
+    "Much less"="About the same or less")))%>%
+   mutate_at(c("increase_temp", "extreme_weather","atmospheric_pollution", "water_pollution","food_contamination","soil_pollution","radiation"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Moderately influenced"="Moderately, Slightly or Not influenced",
+    "Slightly influenced" = "Moderately, Slightly or Not influenced",
+    "Not influenced"="Moderately, Slightly or Not influenced")))%>%
+  mutate_at("factors_affect_health",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Not too important" = "Not too important or Not at all important or Don't know",
+    "Not important at all" = "Not too important or Not at all important or Don't know",
+    "Don't know" = "Not too important or Not at all important or Don't know")))%>%
+   mutate_at(c("atmospheric_pollution_h", "water_pollution_h","chemicals", "waste","heatwave","floods","scarcity","rural_pollution" ,"noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation","covid"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Somewhat minor danger"="Somewhat minor danger or No danger at all or Don't know",
+    "No danger at all" = "Somewhat minor danger or No danger at all or Don't know",
+    "Don't know"="Somewhat minor danger or No danger at all or Don't know")))%>%
+mutate_at(c("cancer_child", "infertility","asthma_child", "allergies","genetic_abnormalities","breast_cancer","hypertension","flu" ,"prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis","infectious_diseases_1","covid19","depression"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "No role at all" = "No role at all or Don't know",
+    "Don't know" = "No role at all or Don't know")))%>%
+  mutate_at(c("action1", "action2"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Nothing at all" = "Nothing at all or Don't know",
+    "Don't know"="Nothing at all or Don't know")))%>%
+   mutate_at(c("communityvironment","effects_climate_change","protect_health_issues", "protect_from_cl_change"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "No, and I don't wish to have more information" = "No, and I don't wish to have more information or Don't know",
+    "Don't know" = "No, and I don't wish to have more information or Don't know")))%>%
+   mutate_at("occupational_status",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+       "Student" = "Not working or Student",
+    "Retired"="Not working or Student",
+    "Unemployed/ Out of employment "= "Not working or Student",
+    "Housekeeping"= "Not working or Student")))%>%
+  mutate_at("marital_status",
+           .funs = function(t) revalue(x = t,
+    replace = c("Divorced" ="Not married",
+    "Widowed"="Not married",
+    " Unmarried"="Not married")))%>%
+  mutate_at("education_level",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+      "I have never been to school"="Non-university",
+      "High School/ Vocational High School (diploma)"="Non-university",
+      "Higher (after high school) non-tertiary Education" ="Non-university",
+    "Higher Tertiary Education (non-university)"="Non-university",
+    "University- Postgraduate (Master's Degree)"="Postgraduate or PhD",
+    "PhD"="Postgraduate or PhD"
+    )))%>%
+   mutate_at(c("internet","news","movies","discussions",
+               "newspapers","doctors","educational_material","publication",
+               "radio","magazines","books","events","politicians"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Quite a bit reliable" = "Quite a bit reliable or Extremely reliable",
+    "Extremely reliable" = "Quite a bit reliable or Extremely reliable")))%>%
+  mutate_at("health_status",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+      "Average"="Poor or Average",
+      "Poor"="Poor or Average")))
+```
+
+### Comparisons in 2021 by sex
+
+### Table 6.  Do you see evidence of climate change on the planet?
+
+`r kable(print(CreateCatTable(vars="climate_change",strata="sex", data=q_EN_GR_clean_comp4)))`
+  
+### Table 7.  With environmental factors in mind, such as climate change, pollution and (toxic) waste, how often do you think will the following health issues occur in 2031 (in 10 years) compared to now, in Cyprus?
+
+`r kable(print(CreateCatTable(vars=c("accidents","asthma_patients","cancer_patients","obese_people","type2_diabetes","hypertension_patients","infectious_disease","mental_health"),strata="sex", data=q_EN_GR_clean_comp4)))`
+
+### Table 8. To what degree do you think that the following factors are being influenced by climate change?
+
+`r kable(print(CreateCatTable(vars=c("increase_temp","extreme_weather","atmospheric_pollution","water_pollution","food_contamination","soil_pollution","radiation"),strata="sex", data=na.omit(q_EN_GR_clean_comp4))))`
+
+### Table 9.  How important do you think environmental factors are in causing diseases?
+
+`r kable(print(CreateCatTable(vars=c("factors_affect_health"),strata="sex", data=q_EN_GR_clean_comp4)))`
+
+### Table 10.  How dangerous do you think the following environmental exposures are for your health?
+
+`r kable(print(CreateCatTable(vars=c("atmospheric_pollution_h","water_pollution_h","chemicals","waste","heatwave","floods","scarcity","rural_pollution","noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation","covid"),strata="sex",data=q_EN_GR_clean_comp4)))`
+
+### Table 11.  Now thinking of some specific illnesses, do you think environmental factors play a major role,minor role or no role at all in causing the following illnesses?
+
+`r kable(print(CreateCatTable(vars=c("cancer_child","infertility","asthma_child","allergies","genetic_abnormalities","breast_cancer","hypertension","flu","prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis","infectious_diseases_1","covid19","depression"),strata="sex", data=q_EN_GR_clean_comp4)))`
+
+### Table 12. In your opinion, how much can people like you do to protect yourself from the following?
+
+`r kable(print(CreateCatTable(vars=c("action1","action2"),strata="sex", data=q_EN_GR_clean_comp4)))`
+
+
+### Comparisons in 2021 by education level
+
+### Table 13.  Do you see evidence of climate change on the planet?
+
+`r kable(print(CreateCatTable(vars="climate_change",strata="education_level", data=q_EN_GR_clean_comp4)))`
+
+### Table 14.  With environmental factors in mind, such as climate change, pollution and (toxic) waste, how often do you think will the following health issues occur in 2031 (in 10 years) compared to now, in Cyprus?
+
+`r kable(print(CreateCatTable(vars=c("accidents","asthma_patients","cancer_patients","obese_people","type2_diabetes","hypertension_patients","infectious_disease","mental_health"),strata="education_level", data=q_EN_GR_clean_comp4)))`
+
+### Table 15.To what degree do you think that the following factors are being influenced by climate?
+
+`r kable(print(CreateCatTable(vars=c("increase_temp","extreme_weather","atmospheric_pollution","water_pollution","food_contamination","soil_pollution","radiation"),strata="education_level", data=q_EN_GR_clean_comp4)))`
+
+### Table 16.  How important do you think environmental factors are in causing diseases?
+
+`r kable(print(CreateCatTable(vars=c("factors_affect_health"),strata="education_level", data=q_EN_GR_clean_comp4)))`
+
+### Table 17.  How dangerous do you think the following environmental exposures are for your health?
+
+`r kable(print(CreateCatTable(vars=c("atmospheric_pollution_h","water_pollution_h","chemicals","waste","heatwave","floods","scarcity","rural_pollution","noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation","covid"),strata="education_level",data=q_EN_GR_clean_comp4)))`
+
+### Table 18.  Now thinking of some specific illnesses, do you think environmental factors play a major role, minor role or no role at all in causing the following illnesses?
+
+`r kable(print(CreateCatTable(vars=c("cancer_child","infertility","asthma_child","allergies","genetic_abnormalities","breast_cancer","hypertension","flu","prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis","infectious_diseases_1","covid19","depression"),strata="education_level", data=q_EN_GR_clean_comp4)))`
+
+### Table 19. In your opinion, how much can people like you do to protect yourself from the following?
+
+`r kable(print(CreateCatTable(vars=c("action1","action2"),strata="education_level", data=q_EN_GR_clean_comp4)))`
+
+### Comparisons in 2021 by Age
+
+### Table 20.  Do you see evidence of climate change on the planet?
+
+`r kable(print(CreateCatTable(vars="climate_change",strata="age_cat", data=q_EN_GR_clean_comp4)))`
+
+### Table 21.  With environmental factors in mind, such as climate change, pollution and (toxic) waste, how often do you think will the following health issues occur in 2031 (in 10 years) compared to now, in Cyprus?
+
+`r kable(print(CreateCatTable(vars=c("accidents","asthma_patients","cancer_patients","obese_people","type2_diabetes","hypertension_patients","infectious_disease","mental_health"),strata="age_cat", data=q_EN_GR_clean_comp4)))`
+
+### Table 22. To what degree do you think that the following factors are being influenced by climate?
+
+`r kable(print(CreateCatTable(vars=c("increase_temp","extreme_weather","atmospheric_pollution","water_pollution","food_contamination","soil_pollution","radiation"),strata="age_cat", data=q_EN_GR_clean_comp4)))`
+
+### Table 23.  How important do you think environmental factors are in causing diseases?
+
+`r kable(print(CreateCatTable(vars=c("factors_affect_health"),strata="age_cat", data=q_EN_GR_clean_comp4)))`
+
+### Table 24.  How dangerous do you think the following environmental exposures are for your health?
+
+`r kable(print(CreateCatTable(vars=c("atmospheric_pollution_h","water_pollution_h","chemicals","waste","heatwave","floods","scarcity","rural_pollution","noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation","covid"),strata="age_cat",data=q_EN_GR_clean_comp4)))`
+
+### Table 25.  Now thinking of some specific illnesses, do you think environmental factors play a major role,minor role or no role at all in causing the following illnesses?
+
+`r kable(print(CreateCatTable(vars=c("cancer_child","infertility","asthma_child","allergies","genetic_abnormalities","breast_cancer","hypertension","flu","prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis","infectious_diseases_1","covid19","depression"),strata="age_cat", data=q_EN_GR_clean_comp4)))`
+
+### Table 26. In your opinion, how much can people like you do to protect yourself from the following?
+
+`r kable(print(CreateCatTable(vars=c("action1","action2"),strata="age_cat", data=q_EN_GR_clean_comp4)))`
+
+```{r self-assessed health 2018}
+
+rm(list = setdiff(ls(), c("q_EN_GR_clean_comp4","q_2018_sah","q_2018")))
+
+# create a list with questions and rename questions with Q_1 etc for easier use
+variables_List<-as_tibble(colnames(q_2018_sah))
+
+variables_List<-mutate(variables_List, code=paste0("Q_", rownames(variables_List)))   
+
+names(q_2018_sah) <- paste("Q_", 1:ncol(q_2018_sah), sep="")
+
+# Rename levels of don't know to correct Don't know
+#levels(q_2018_sah$Q_41)
+#[1] "Definitely false" "Don\x92t know"    "Definitely true"  "Mostly false"     "Mostly true"     
+#> levels(q_2018_sah$Q_42)
+#[1] "Definitely false" "Definitely true"  "Mostly false"     "Don\x92t know"    "Mostly true"     
+# levels(q_2018_sah$Q_43)
+#[1] "Don\x92t know"    "Definitely false" "Definitely true"  "Mostly false"     "Mostly true"     
+# levels(q_2018_sah$Q_44)
+#[1] "Definitely false" "Definitely true"  "Mostly false"     "Don\x92t know"    "Mostly true"  
+
+levels(q_2018_sah$Q_41)[2] <-"Don’t know"
+levels(q_2018_sah$Q_42)[4] <-"Don’t know"
+levels(q_2018_sah$Q_43)[1] <-"Don’t know"
+levels(q_2018_sah$Q_44)[4] <-"Don’t know"
+
+# Use the scoring rules of the RAND 36-Item Health Survey 1.0 (https://www.rand.org/health-care/surveys_tools/mos/36-item-short-form/scoring.html) 
+
+# STEP 1: change original response category to recoded value: 
+
+# questions 11,12,30,42,44 from 1,2,3,4,5 to 100,75,50,25,0
+
+# mutate all in one using pipes
+
+q_2018_sah$Q_11 <- revalue(q_2018_sah$Q_11,
+  replace = c(
+    "Excellent" = "100",
+    "Very good" = "75",
+    "Good" = "50",
+    "Average" = "25",
+    "Poor" = "0"))
+
+q_2018_sah$Q_12 <- revalue(q_2018_sah$Q_12,
+  replace = c(
+    "Much better now than one year ago" = "100",
+    "Somewhat better now than one year ago" = "75",
+    "About the same" = "50",
+    "Somewhat worse than one year ago" = "25",
+    "Much worse now than one year ago" = "0"))
+
+q_2018_sah$Q_30 <- revalue(q_2018_sah$Q_30,
+  replace = c(
+    "Not at all" = "100",
+    "Slightly" = "75",
+    "Moderately" = "50",
+    "Quite a bit" = "25",
+    "Extremely" = "0"))
+
+q_2018_sah<- q_2018_sah%>% 
+                mutate_at(c("Q_42","Q_44"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = 
+                                                        c("Definitely true" = "100",
+                                                          "Mostly true" = "75",
+                                                          "Don’t know" = "50",
+                                                          "Mostly false" = "25",
+                                                          "Definitely false" = "0")))
+
+# questions 13-22 from 1,2,3 to 0,50,100
+
+q_2018_sah<- q_2018_sah%>% 
+                mutate_at(c("Q_13","Q_14","Q_15","Q_16",
+                            "Q_17","Q_18","Q_19","Q_20",
+                            "Q_21","Q_22"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                        "Yes, limited a lot" = "0",
+                                                        "Yes, limited a little" = "50",
+                                                        "No, not limited at all" = "100")))
+
+# questions 23-29 from 1,2 to 0,100
+
+q_2018_sah<- q_2018_sah%>% 
+                mutate_at(c("Q_23","Q_24","Q_25","Q_26",
+                            "Q_27","Q_28","Q_29"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                        "Yes" = "0", 
+                                                        "No" = "100")))
+
+# questions 31,34,35,38 from 1,2,3,4,5,6 to 100,80,60,40,20,0
+
+q_2018_sah<- q_2018_sah%>% 
+                mutate_at(c("Q_31","Q_34","Q_35","Q_38"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                        "All of the time" = "100",
+                                                        "Most of the time" = "80",
+                                                        "A good bit of the time" = "60",
+                                                        "Some of the time" = "40",
+                                                        "A little of the time" = "20",
+                                                        "None of the time" = "0")))
+
+# questions 32,33,36,37,39 from 1,2,3,4,5,6 to 0,20,40,60,80,100
+
+q_2018_sah<- q_2018_sah%>% 
+                mutate_at(c("Q_32","Q_33","Q_36","Q_37","Q_39"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                         "All of the time" = "0",
+                                                         "Most of the time" = "20",
+                                                         "A good bit of the time" = "40",
+                                                         "Some of the time" = "60",
+                                                         "A little of the time" = "80",
+                                                         "None of the time" = "100")))
+
+# questions 40,41,43 from 1,2,3,4,5 to 0,25,50,75,100
+
+q_2018_sah$Q_40 <- revalue(q_2018_sah$Q_40,
+  replace = c(
+    "All of the time" = "0",
+    "Most of the time" = "25",
+     "Some of the time" = "50",
+    "A little of the time" = "75",
+    "None of the time" = "100"))
+
+q_2018_sah<- q_2018_sah%>% 
+                mutate_at(c("Q_41","Q_43"), 
+                          .funs = function(t) revalue(x = t,
+                                                      replace = c(
+                                                         "Definitely true" = "0",
+                                                         "Mostly true" = "25",
+                                                         "Don’t know" = "50",
+                                                         "Mostly false" = "75",
+                                                         "Definitely false" = "100")))
+
+
+# change variable from factors into numeric
+
+as.numeric.factor <- function(x) {as.numeric(levels(x))[x]}
+
+q_2018_sah[, c("Q_11","Q_12","Q_13","Q_14","Q_15","Q_16",
+                  "Q_17","Q_18","Q_19","Q_20","Q_21","Q_22",
+                  "Q_23","Q_24","Q_25","Q_26","Q_27","Q_28",
+                  "Q_29","Q_30","Q_31","Q_32","Q_33","Q_34",
+                  "Q_35","Q_36","Q_37","Q_38","Q_39","Q_40",
+                  "Q_41","Q_42","Q_43","Q_44")]<-lapply(
+q_2018_sah[, c("Q_11","Q_12","Q_13","Q_14","Q_15","Q_16",
+                  "Q_17","Q_18","Q_19","Q_20","Q_21","Q_22",
+                  "Q_23","Q_24","Q_25","Q_26","Q_27","Q_28",
+                  "Q_29","Q_30","Q_31","Q_32","Q_33","Q_34",
+                  "Q_35","Q_36","Q_37","Q_38","Q_39","Q_40",
+                  "Q_41","Q_42","Q_43","Q_44")],
+             as.numeric.factor)
+
+# STEP 2: Average items to form scales
+
+# Physical functioning 13-22
+
+q_2018_sah<- q_2018_sah%>% 
+    dplyr::mutate(phys_func = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('Q_13','Q_14','Q_15',
+                                    'Q_16','Q_17','Q_18',
+                                    'Q_19','Q_20','Q_21','Q_22')))))
+
+# Role limitations due to physical health	23-26
+
+q_2018_sah<- q_2018_sah%>% 
+    dplyr::mutate(phys_health = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('Q_23','Q_24','Q_25','Q_26')))))
+
+# Role limitations due to emotional problems	27-29
+
+q_2018_sah<- q_2018_sah%>% 
+    dplyr::mutate(emotion_prob = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('Q_27','Q_28','Q_29')))))
+        
+# Energy/fatigue	31,35,37,39
+
+q_2018_sah<- q_2018_sah%>% 
+    dplyr::mutate(energy_fatigue = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('Q_31','Q_35',
+                                    'Q_37','Q_39')))))
+
+# Emotional well-being	32,33,34,36,38
+
+q_2018_sah<- q_2018_sah%>% 
+    dplyr::mutate(emotion_wellbeing = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('Q_32','Q_33','Q_34',
+                                    'Q_36','Q_38')))))
+
+# Social functioning	30,40
+
+q_2018_sah<- q_2018_sah%>% 
+    dplyr::mutate(social_func = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('Q_30','Q_40')))))
+
+# General health	11,41,42,43,44
+
+q_2018_sah<- q_2018_sah%>% 
+    dplyr::mutate(general_health = rowMeans(
+                              dplyr::select(., 
+                                            dplyr::one_of(
+                                  c('Q_11','Q_41','Q_42',
+                                    'Q_43','Q_44')))))
+
+# rename Q_12_ to actual name for including it in table with rest scales
+names(q_2018_sah)[names(q_2018_sah) == 'Q_12'] <- 'health_change'
+
+# variable selection for self-assessed health table
+health_descr<-c("phys_func","phys_health","emotion_prob","energy_fatigue",
+                "emotion_wellbeing","social_func","general_health", "health_change")
+
+# Step 3: Assess reliability/internal consistency using Cronbach's alpha
+# https://mattchoward.com/introduction-to-cronbachs-alpha/ 
+# https://mattchoward.com/calculating-cronbachs-alpha-in-r/ 
+
+# separate each scale in a different dataframe, including only the columns 
+# that contain data for each scale
+
+# Physical functioning 13-22
+
+phys_func <- subset(q_2018_sah, select=c(
+ 'Q_13','Q_14','Q_15',
+ 'Q_16','Q_17','Q_18',
+ 'Q_19','Q_20','Q_21','Q_22'))
+
+# This function reports two estimates: Cronbach's coefficient alpha and Guttman's lambda_6
+s1 <- psych::alpha(phys_func)
+
+# Role limitations due to physical health	23-26
+
+phys_health <- subset(q_2018_sah, select=c(
+ 'Q_23','Q_24','Q_25','Q_26'))
+
+s2 <- psych::alpha(phys_health)
+
+# Role limitations due to emotional problems	27-29
+
+emotion_prob <- subset(q_2018_sah, select=c(
+ 'Q_27','Q_28','Q_29'))
+
+s3 <- psych::alpha(emotion_prob)
+
+# Energy/fatigue	31,35,37,39
+
+energy_fatigue <- subset(q_2018_sah, select=c(
+ 'Q_31','Q_35',
+ 'Q_37','Q_39'))
+
+s4 <- psych::alpha(energy_fatigue, check.keys=TRUE)
+
+# Emotional well-being	32,33,34,36,38
+
+emotion_wellbeing <- subset(q_2018_sah, select=c(
+ 'Q_32','Q_33','Q_34',
+ 'Q_36','Q_38'))
+
+s5 <- psych::alpha(emotion_wellbeing)
+
+# Social functioning	30,40
+
+social_func <- subset(q_2018_sah, select=c(
+ 'Q_30','Q_40'))
+
+s6 <- psych::alpha(social_func)
+
+# General health	11,41,42,43,44
+
+general_health <- subset(q_2018_sah, select=c(
+ 'Q_11','Q_41','Q_42',
+ 'Q_43','Q_44'))
+
+s7 <- psych::alpha(general_health)
+
+```
+### Comparisons in 2018
+
+### Table 27- Self-assessed health
+
+`r kable(print(CreateTableOne(health_descr, data=q_2018_sah)), caption="Scales based on the RAND 36-item Health Survey")`
+
+`r kable(print(CreateTableOne(health_descr, data=q_2018_sah, testNonNormal = kruskal.test, smd=F),nonnormal=health_descr), caption="Scales based on the RAND 36-item Health Survey")`
+
+
+Cronbach's alpha for scales:
+
+- Physical functioning: 
+`r kable(print(s1$total))`
+
+- Role limitations due to physical health: 
+`r kable(print(s2$total))`
+
+- Role limitations due to emotional problems: 
+`r kable(print(s3$total))`
+
+- Energy/fatigue: 
+`r kable(print(s4$total))`
+
+- Emotional well-being: 
+`r kable(print(s5$total))`
+
+- Social functioning: 
+`r kable(print(s6$total))`
+
+- General health: 
+`r kable(print(s7$total))`
+
+
+```{r comparisons in 2018}
+
+names(q_2018) <- paste("Q_", 1:ncol(q_2018), sep="")
+
+# separate responses for question 59 into 5 columns (1 choice per column)
+q_2018$Q_59_c<- as.character(q_2018$Q_59)
+q_2018 <- q_2018 %>% 
+  separate(Q_59_c, c("env_factor_health_effect_1","env_factor_health_effect_2",
+                     "env_factor_health_effect_3","env_factor_health_effect_4",
+                     "env_factor_health_effect_5"), sep = ";", 
+           remove = FALSE,convert = FALSE, extra = "warn", fill = "warn")
+
+# change variable types into factors 
+
+q_2018[, c("env_factor_health_effect_1",
+         "env_factor_health_effect_2",
+         "env_factor_health_effect_3",
+         "env_factor_health_effect_4",
+         "env_factor_health_effect_5")]<-
+  lapply(q_2018[, c("env_factor_health_effect_1",
+         "env_factor_health_effect_2",
+         "env_factor_health_effect_3",
+         "env_factor_health_effect_4",
+         "env_factor_health_effect_5")],
+         factor)
+
+# transform into long dataset in order to get each choice in a separate row - each participant has 5 rows
+q_en_59_long <- q_2018 %>% pivot_longer(
+  cols = starts_with("env_factor"),
+  values_to = "count")
+
+# create a table with counts and make it a dataframe 
+table_q_59 <- table(q_en_59_long$count) %>% as.data.frame()
+  
+# separate responses for question 93 into 5 columns (1 choice per column)
+q_2018$Q_93_c<- as.character(q_2018$Q_93)
+q_2018 <- q_2018 %>% 
+  separate(Q_93_c, c("info_sources_used_1","info_sources_used_2",
+                     "info_sources_used_3","info_sources_used_4",
+                     "info_sources_used_5"), sep = ";", 
+           remove = FALSE,convert = FALSE, extra = "warn", fill = "warn")
+
+# change variable types into factors 
+
+q_2018[, c("info_sources_used_1","info_sources_used_2",
+                     "info_sources_used_3","info_sources_used_4",
+                     "info_sources_used_5")]<-
+  lapply(q_2018[, c("info_sources_used_1","info_sources_used_2",
+                     "info_sources_used_3","info_sources_used_4",
+                     "info_sources_used_5")],
+         factor)
+
+# transform into long dataset in order to get each choice in a separate row - each participant has 5 rows
+q_en_93_long <- q_2018 %>% pivot_longer(
+  cols = starts_with("info_sources_used"),
+  values_to = "count")
+
+# separate responses for question 111 into 5 columns (1 choice per column)
+q_2018$Q_111_c<- as.character(q_2018$Q_111)
+q_2018 <- q_2018 %>% 
+  separate(Q_111_c, c("info_sources_preferred_1","info_sources_preferred_2",
+                     "info_sources_preferred_3","info_sources_preferred_4",
+                     "info_sources_preferred_5"), sep = ";", 
+           remove = FALSE,convert = FALSE, extra = "warn", fill = "warn")
+
+# change variable types into factors 
+
+q_2018[, c("info_sources_preferred_1","info_sources_preferred_2",
+                     "info_sources_preferred_3","info_sources_preferred_4",
+                     "info_sources_preferred_5")]<-
+  lapply(q_2018[, c("info_sources_preferred_1","info_sources_preferred_2",
+                     "info_sources_preferred_3","info_sources_preferred_4",
+                     "info_sources_preferred_5")],
+         factor)
+
+# transform into long dataset in order to get each choice in a separate row - each participant has 5 rows
+q_en_111_long <- q_2018 %>% pivot_longer(
+  cols = starts_with("info_sources_preferred"),
+  values_to = "count")
+
+```
+### Table 28. Choose up to 5 sources of information where you get information about environmental health risks from (2018)
+
+- The table below has the correct n but not the correct % as it calculates it based on the total number of responses and not number of participants
+`r kable(print(CreateCatTable(vars=c("count"), data=q_en_93_long)))`
+
+### Table 29. Choose up to 5 ways of how you would like to receive information regarding environmental health risks (2018)
+
+- The table below has the correct n but not the correct % as it calculates it based on the total number of responses and not number of participants
+`r kable(print(CreateCatTable(vars=c("count"), data=q_en_111_long)))`
+
+
+```{r comparisons in 2018 by sex}
+ 
+ #keep only the questions concerning Environmental Health Risks,information sourses and health status.
+q_2018_hr<-q_2018%>%select(c(paste("Q_", 45:58, sep=""),paste("Q_", 60:92, sep=""),paste("Q_", 94:110, sep=""),Q_11,Q_3,Q_4,Q_114))
+
+#Obtain the dataset q_2021_hr which contain the questions concerning Environmental Health Risks,information sourses and health status from dataset q_EN_GR_clean_comp4
+q_2021_hr<-q_EN_GR_clean_comp4%>%select(c("climate_change",  "accidents" , "asthma_patients","cancer_patients", "obese_people",           
+ "type2_diabetes","hypertension_patients", "increase_temp","extreme_weather",       
+"atmospheric_pollution","water_pollution","food_contamination",     
+"soil_pollution"  ,        "radiation",       
+ "factors_affect_health" ,  "atmospheric_pollution_h", "water_pollution_h",      
+ "chemicals" ,              "waste" ,                  "heatwave"  ,             
+ "floods" ,                 "scarcity" ,               "rural_pollution",        
+"noise_pollution" ,        "consum_habits" ,          "invasive_items" ,        
+ "depl_natural_resources",  "biodiversity_reduction",  "soil_degradation",                 
+"cancer_child" ,           "infertility",           
+"asthma_child" ,           "allergies",               "genetic_abnormalities",  
+ "breast_cancer" ,          "hypertension",            "flu"  ,                  
+ "prostate_cancer" ,       "brain_tumour" ,           "asthma_adults" ,         
+"obesity"  ,               "type_ii_diabetes",        "thyroid_cancer"  ,       
+"vector_borne_infdis",     "infectious_diseases_1",               
+"action1" ,                "action2","internet",                "news"                  
+,"movies"  ,                "discussions" ,            "newspapers"             
+,"doctors"      ,           "educational_material" ,   "publication"            
+,"radio",                   "magazines" ,              "books"                  
+, "events"    ,              "politicians", "communityvironment"     
+,"effects_climate_change",  "protect_health_issues",  "protect_from_cl_change","health_status","sex","education_level","age_cat"))
+
+
+names(q_2018_hr)<-names(q_2021_hr)
+
+#Insert the variable year in the data frame q_2021_hr
+q_2021_hr$Year<-rep(2021,dim(q_2021_hr)[1])
+
+#Insert the variable year in the data frame q_2018_hr
+q_2018_hr$Year<-rep(2018,dim(q_2018_hr)[1])
+
+#Make the names of levels in q_2018_hr same with the levels in q_2021_hr
+
+# Rename levels of don't know to correct Don't know
+#levels(q_2018_sah$Q_41)
+#[1] "Definitely false" "Don\x92t know"    "Definitely true"  "Mostly false"     "Mostly true"     
+#> levels(q_2018_sah$Q_42)
+#[1] "Definitely false" "Definitely true"  "Mostly false"     "Don\x92t know"    "Mostly true"     
+# levels(q_2018_sah$Q_43)
+#[1] "Don\x92t know"    "Definitely false" "Definitely true"  "Mostly false"     "Mostly true"     
+# levels(q_2018_sah$Q_44)
+#[1] "Definitely false" "Definitely true"  "Mostly false"     "Don\x92t know"    "Mostly true"  
+
+levels(q_2018_hr$factors_affect_health)[1] <-"Don't know"
+levels(q_2018_hr$communityvironment)[1] <-"No, and I don't like to have the information"
+levels(q_2018_hr$communityvironment)[2] <-"Don't know"
+levels(q_2018_hr$effects_climate_change)[1] <-"Don't know"
+levels(q_2018_hr$effects_climate_change)[2] <-"No, and I don't like to have the information"
+levels(q_2018_hr$protect_health_issues)[1] <-"No, and I don't like to have the information"
+levels(q_2018_hr$protect_health_issues)[2] <-"Don't know"
+levels(q_2018_hr$protect_from_cl_change)[1] <-"No, and I don't like to have the information"
+levels(q_2018_hr$protect_from_cl_change)[2] <-"Don't know"
+levels(q_2018_hr$action1)[1] <-"Don't know"
+levels(q_2018_hr$action2)[1] <-"Don't know"
+levels(q_2018_hr$factors_affect_health)[1] <-"Don't know"
+
+levels(q_2018_hr$increase_temp)[levels(q_2018_hr$increase_temp)=="Not at all influenced" ]<-"Not influenced"
+levels(q_2018_hr$extreme_weather)[levels(q_2018_hr$extreme_weather)=="Not at all influenced" ]<-"Not influenced"
+levels(q_2018_hr$increase_temp)[levels(q_2018_hr$increase_temp)=="Not at all influenced" ]<-"Not influenced"
+levels(q_2018_hr$atmospheric_pollution)[levels(q_2018_hr$atmospheric_pollution)=="Not at all influenced" ]<-"Not influenced"
+levels(q_2018_hr$water_pollution)[levels(q_2018_hr$water_pollution)=="Not at all influenced" ]<-"Not influenced"
+levels(q_2018_hr$food_contamination)[levels(q_2018_hr$food_contamination)=="Not at all influenced" ]<-"Not influenced"
+levels(q_2018_hr$soil_pollution)[levels(q_2018_hr$soil_pollution)=="Not at all influenced" ]<-"Not influenced"
+
+levels(q_2018_hr$radiation)[levels(q_2018_hr$radiation)=="Not at all influenced" ]<-"Not influenced"
+
+
+levels(q_2018_hr$communityvironment)[levels(q_2018_hr$communityvironment)=="No, and I don't like to have the information" ]<-"No, and I don't wish to have more information"
+
+levels(q_2018_hr$effects_climate_change)[levels(q_2018_hr$effects_climate_change)=="No, and I don't like to have the information" ]<-"No, and I don't wish to have more information"
+
+
+levels(q_2018_hr$protect_health_issues)[levels(q_2018_hr$protect_health_issues)=="No, and I don't like to have the information" ]<-"No, and I don't wish to have more information"
+
+levels(q_2018_hr$protect_from_cl_change)[levels(q_2018_hr$protect_from_cl_change)=="No, and I don't like to have the information" ]<-"No, and I don't wish to have more information"
+
+#Join some levels (Pooling for chi square test)
+q_2018_hr1<-q_2018_hr %>% 
+  mutate_at(c("climate_change"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Not at all"="Moderately or Slightly or Not at all",
+    "Slightly" = "Moderately or Slightly or Not at all",
+    "Moderately"="Moderately or Slightly or Not at all")))%>%
+mutate_at(c("accidents", "asthma_patients","cancer_patients", "obese_people","type2_diabetes","hypertension_patients"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "About the same"="About the same or less",
+    "Somewhat less" = "About the same or less",
+    "Much less"="About the same or less")))%>%
+   mutate_at(c("increase_temp", "extreme_weather","atmospheric_pollution", "water_pollution","food_contamination","soil_pollution","radiation"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Moderately influenced"="Moderately, Slightly or Not influenced",
+    "Slightly influenced" = "Moderately, Slightly or Not influenced",
+    "Not influenced"="Moderately, Slightly or Not influenced")))%>%
+  mutate_at("factors_affect_health",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Not too important" = "Not too important or Not at all important or Don't know",
+    "Not important at all" = "Not too important or Not at all important or Don't know",
+    "Don't know" = "Not too important or Not at all important or Don't know")))%>%
+   mutate_at(c("atmospheric_pollution_h", "water_pollution_h","chemicals", "waste","heatwave","floods","scarcity","rural_pollution" ,"noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Somewhat minor danger"="Somewhat minor danger or No danger at all or Don't know",
+    "No danger at all" = "Somewhat minor danger or No danger at all or Don't know",
+    "Don't know"="Somewhat minor danger or No danger at all or Don't know")))%>%
+mutate_at(c("cancer_child", "infertility","asthma_child", "allergies","genetic_abnormalities","breast_cancer","hypertension","flu" ,"prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis","infectious_diseases_1"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "No role at all" = "No role at all or Don't know",
+    "Don't know" = "No role at all or Don't know")))%>%
+  mutate_at(c("action1", "action2"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Nothing at all" = "Nothing at all or Don't know",
+    "Don't know"="Nothing at all or Don't know")))%>%
+   mutate_at(c("communityvironment","effects_climate_change","protect_health_issues", "protect_from_cl_change"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "No, and I don't wish to have more information" = "No, and I don't wish to have more information or Don't know",
+    "Don't know" = "No, and I don't wish to have more information or Don't know")))%>%
+   mutate_at(c("internet",                "news"                  
+,"movies"  ,                "discussions" ,            "newspapers"             
+,"doctors"      ,           "educational_material" ,   "publication"            
+,"radio",                   "magazines" ,              "books"                  
+, "events"    ,              "politicians"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Quite a bit reliable" = "Quite a bit reliable or Extremely reliable",
+    "Extremely reliable" = "Quite a bit reliable or Extremely reliable")))%>%
+   mutate_at(c("health_status"),
+           .funs = function(t) revalue(x = t,
+    replace = c(
+    "Poor" = "Poor or Average",
+    "Average" = "Poor or Average")))%>%
+  mutate_at("education_level",
+           .funs = function(t) revalue(x = t,
+    replace = c(
+      "High School/Vocational High School (diploma)"="Non-university",
+    "Higher Tertiary Education (non-Univesity)"="Non-university",
+    "I have not completed primary school"="Non-university",
+    "University (Bachelor degree)"="University (Bachelor degree)",  
+    "University-Postgraduate (only Master's degree)"="Postgraduate or PhD",
+    "PhD"="Postgraduate or PhD"
+    )))
+
+#Put together the datsets q_2018_hr1 and q_2021_hr
+q_2021_2018<-rbind(q_2018_hr1,q_2021_hr)
+
+#Convert the variable year into factor
+q_2021_2018$Year<-as.factor(q_2021_2018$Year)
+```
+### Comparisons in 2018 by sex
+
+### Table 30.  Do you see evidence of climate change on the planet?
+
+`r kable(print(CreateCatTable(vars="climate_change",strata="sex", data=na.omit(q_2018_hr1))))`
+
+### Table 31.  With environmental factors in mind, such as climate change, pollution and (toxic) waste, how often do you think will the following health issues occur in 2031 (in 10 years) compared to now, in Cyprus?
+
+`r kable(print(CreateCatTable(vars=c("accidents","asthma_patients","cancer_patients","obese_people","type2_diabetes","hypertension_patients"),strata="sex", data=q_2018_hr1)))`
+
+### Table 32. To what degree do you think that the following factors are being influenced by climate change?
+
+`r kable(print(CreateCatTable(vars=c("increase_temp","extreme_weather","atmospheric_pollution","water_pollution","food_contamination","soil_pollution","radiation"),strata="sex", data=na.omit(q_2018_hr1))))`
+
+### Table 33.  How important do you think environmental factors are in causing diseases?
+
+`r kable(print(CreateCatTable(vars=c("factors_affect_health"),strata="sex", data=q_2018_hr1)))`
+
+### Table 34.  How dangerous do you think the following environmental exposures are for your health?
+
+`r kable(print(CreateCatTable(vars=c("atmospheric_pollution_h","water_pollution_h","chemicals","waste","heatwave","floods","scarcity","rural_pollution","noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation"),strata="sex",data=q_2018_hr1)))`
+
+### Table 35.  Now thinking of some specific illnesses, do you think environmental factors play a major role,minor role or no role at all in causing the following illnesses?
+
+`r kable(print(CreateCatTable(vars=c("cancer_child","infertility","asthma_child","allergies","genetic_abnormalities","breast_cancer","hypertension","flu","prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis"  ,"infectious_diseases_1"),strata="sex",data=q_2018_hr1)))`
+
+### Table 36. In your opinion, how much can people like you do to protect yourself from the following?
+
+`r kable(print(CreateCatTable(vars=c("action1","action2"),strata="sex", data=q_2018_hr1)))`
+
+### Comparisons in 2018 by educational level
+
+### Table 37.  Do you see evidence of climate change on the planet?
+
+`r kable(print(CreateCatTable(vars="climate_change",strata="education_level", data=q_2018_hr1)))`
+  
+### Table 38.  With environmental factors in mind, such as climate change, pollution and (toxic) waste, how often do you think will the following health issues occur in 2031 (in 10 years) compared to now, in Cyprus?
+
+`r kable(print(CreateCatTable(vars=c("accidents","asthma_patients","cancer_patients","obese_people","type2_diabetes","hypertension_patients"),strata="education_level", data=q_2018_hr1)))`
+
+### Table 39. To what degree do you think that the following factors are being influenced by climate change?
+
+`r kable(print(CreateCatTable(vars=c("increase_temp","extreme_weather","atmospheric_pollution","water_pollution","food_contamination","soil_pollution","radiation"),strata="education_level", data=na.omit(q_2018_hr1))))`
+
+### Table 40.  How important do you think environmental factors are in causing diseases?
+
+`r kable(print(CreateCatTable(vars=c("factors_affect_health"),strata="education_level", data=q_2018_hr1)))`
+
+### Table 41.  How dangerous do you think the following environmental exposures are for your health?
+
+`r kable(print(CreateCatTable(vars=c("atmospheric_pollution_h","water_pollution_h","chemicals","waste","heatwave","floods","scarcity","rural_pollution","noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation"),strata="education_level",data=q_2018_hr1)))`
+
+### Table 42.  Now thinking of some specific illnesses, do you think environmental factors play a major role,minor role or no role at all in causing the following illnesses?
+
+`r kable(print(CreateCatTable(vars=c("cancer_child","infertility","asthma_child","allergies","genetic_abnormalities","breast_cancer","hypertension","flu","prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis"  ,"infectious_diseases_1"),strata="education_level",data=q_2018_hr1)))`
+
+### Table 43. In your opinion, how much can people like you do to protect yourself from the following?
+
+`r kable(print(CreateCatTable(vars=c("action1","action2"),strata="education_level", data=q_2018_hr1)))`
+
+### Comparisons in 2018 by age
+
+### Table 44.  Do you see evidence of climate change on the planet?
+
+`r kable(print(CreateCatTable(vars="climate_change",strata="age_cat", data=q_2018_hr1)))`
+  
+### Table 45.  With environmental factors in mind, such as climate change, pollution and (toxic) waste, how often do you think will the following health issues occur in 2031 (in 10 years) compared to now, in Cyprus?
+
+`r kable(print(CreateCatTable(vars=c("accidents","asthma_patients","cancer_patients","obese_people","type2_diabetes","hypertension_patients"),strata="age_cat", data=q_2018_hr1)))`
+
+### Table 46.To what degree do you think that the following factors are being influenced by climate change?
+
+`r kable(print(CreateCatTable(vars=c("increase_temp","extreme_weather","atmospheric_pollution","water_pollution","food_contamination","soil_pollution","radiation"),strata="age_cat", data=na.omit(q_2018_hr1))))`
+
+### Table 47.  How important do you think environmental factors are in causing diseases?
+
+`r kable(print(CreateCatTable(vars=c("factors_affect_health"),strata="age_cat", data=q_2018_hr1)))`
+
+### Table 48.  How dangerous do you think the following environmental exposures are for your health?
+
+`r kable(print(CreateCatTable(vars=c("atmospheric_pollution_h","water_pollution_h","chemicals","waste","heatwave","floods","scarcity","rural_pollution","noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation"),strata="age_cat",data=q_2018_hr1)))`
+
+### Table 49.  Now thinking of some specific illnesses, do you think environmental factors play a major role, minor role or no role at all in causing the following illnesses?
+
+`r kable(print(CreateCatTable(vars=c("cancer_child","infertility","asthma_child","allergies","genetic_abnormalities","breast_cancer","hypertension","flu","prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis" ,"infectious_diseases_1"),strata="age_cat",data=q_2018_hr1)))`
+
+### Table 50. In your opinion, how much can people like you do to protect yourself from the following?
+
+`r kable(print(CreateCatTable(vars=c("action1","action2"),strata="age_cat", data=q_2018_hr1)))`
+
+
+### Comparisons between 2018-2021 for climate change part
+
+### Table 51.  Do you see evidence of climate change on the planet?
+
+`r kable(print(CreateCatTable(vars="climate_change",strata="Year", data=q_2021_2018)))`
+
+### Table 52.  With environmental factors in mind, such as climate change, pollution and (toxic) waste, how often do you think will the following health issues occur in 2031 (in 10 years) compared to now, in Cyprus?
+
+`r kable(print(CreateCatTable(vars=c("accidents","asthma_patients","cancer_patients","obese_people","type2_diabetes","hypertension_patients"),strata="Year", data=q_2021_2018)))`
+
+### Table 53. To what degree do you think that the following factors are being influenced by climate?
+
+`r kable(print(CreateCatTable(vars=c("increase_temp","extreme_weather","atmospheric_pollution","water_pollution","food_contamination","soil_pollution","radiation"),strata="Year", data=q_2021_2018)))`
+
+### Table 54.  How important do you think environmental factors are in causing diseases?
+
+`r kable(print(CreateCatTable(vars=c("factors_affect_health"),strata="Year", data=q_2021_2018)))`
+
+### Table 55.  How dangerous do you think the following environmental exposures are for your health?
+
+`r kable(print(CreateCatTable(vars=c("atmospheric_pollution_h","water_pollution_h","chemicals","waste","heatwave","floods","scarcity","rural_pollution","noise_pollution","consum_habits","invasive_items","depl_natural_resources","biodiversity_reduction","soil_degradation"),strata="Year",data=q_2021_2018)))`
+
+### Table 56.  Now thinking of some specific illnesses, do you think environmental factors play a major role,minor role or no role at all in causing the following illnesses?
+
+`r kable(print(CreateCatTable(vars=c("cancer_child","infertility","asthma_child","allergies","genetic_abnormalities","breast_cancer","hypertension","flu","prostate_cancer","brain_tumour","asthma_adults","obesity","type_ii_diabetes","thyroid_cancer","vector_borne_infdis","infectious_diseases_1"),strata="Year", data=q_2021_2018)))`
+
+### Table 57. In your opinion, how much can people like you do to protect yourself from the following?
+
+`r kable(print(CreateCatTable(vars=c("action1","action2"),strata="Year", data=q_2021_2018)))`
+
+##Comparisons between 2018-2021 for sources part
+
+### Table 58.  How reliable do you consider the following information sources to be?
+
+`r kable(print(CreateCatTable(vars=c("internet","news","movies",            "discussions","newspapers","doctors","educational_material","publication"            ,"radio","magazines","books","events","politicians"),strata="Year", data=q_2021_2018)))`
+
+### Table 59. Some people say they do not have enough information about the discussed topics. How about you? Do you have enough information about this or would you like more information?
+
+`r kable(print(CreateCatTable(vars=c("communityvironment","effects_climate_change",  "protect_health_issues","protect_from_cl_change"),strata="Year", data=q_2021_2018)))`
+
+#Comparisons between 2018-2021 for Self-assessed health health part
+
+### Table 60. How is your health?
+`r kable(print(CreateCatTable(vars=c("health_status"),strata="Year", data=q_2021_2018)))`
+
+### Figure 1. Reliability of social media/internet, television news and films and documentaries on television
+
+```{r Plot based on the previeus results}
+
+#Create the fig.1 of ms after reviewes suggestion
+
+#Social Media/internet 
+
+Ans_20181<-c("2018","2021")
+
+All_together<-rep(Ans_20181,each=4)
+
+a<-c("Extremely or quite a bit reliable","Moderately reliable","Slightly reliable","Not at all reliable")
+
+opinions<-rep(a,2)
+
+Values<-c(35.7,41.6,15.1,7.6,18.4,47.3,22.4,11.9)
+
+Pers<-c("35.7%","41.6%","15.1%","7.6%","18.4%","47.3%","22.4%","11.9%")
+
+data<-data.frame(All_together,Values,opinions,Pers)
+
+
+data$opinions<-factor(data$opinions, levels = c("Extremely or quite a bit reliable","Moderately reliable","Slightly reliable","Not at all reliable"))
+
+q1<-ggplot(data, aes(fill=opinions,y=Values, x=All_together)) + 
+     geom_bar(position="stack", stat="identity")+coord_flip()+
+     ggtitle("Social media and internet")+theme(legend.title=element_blank())+
+     xlab("")+ ylab("") + scale_fill_brewer(palette = "Pastel1")+theme_minimal()+theme(legend.title=element_blank())+theme(axis.text.x = element_text(size = 20))+theme(legend.text=element_text(size=25))+theme(axis.text.y = element_text(size = 25)) +
+geom_text(aes(label=Pers), position=position_stack(vjust=0.5), size=7) +theme(axis.text.x = element_blank())+theme(title=element_text(size=20))
+
+#Television news
+
+Ans_20182<-c("2018","2021")
+
+All_together<-rep(Ans_20181,each=4)
+
+a<-c("Extremely or quite a bit reliable","Moderately reliable","Slightly reliable","Not at all reliable")
+
+opinions<-rep(a,2)
+
+Values<-c(53.0,30.3,11.9,4.9,34.8,39.3,16.4,9.5)
+
+Pers<-c("53.0%","30.3%","11.9%","4.9%","34.8%","39.3%","16.4%","9.5%")
+
+data<-data.frame(All_together,Values,opinions,Pers)
+
+data$opinions<-factor(data$opinions, levels = c("Extremely or quite a bit reliable","Moderately reliable","Slightly reliable","Not at all reliable"))
+
+q2<-ggplot(data, aes(fill=opinions, y=Values, x=All_together)) + 
+     geom_bar(position="stack", stat="identity")+coord_flip()+
+     ggtitle("Television news")+theme(legend.title=element_blank())+
+     xlab("")+ ylab("") + scale_fill_brewer(palette = "Pastel1")+theme_minimal()+theme(legend.title=element_blank())+theme(axis.text.x = element_text(size = 20))+theme(legend.text=element_text(size=25))+theme(axis.text.y = element_text(size = 25))+
+geom_text(aes(label=Pers), position=position_stack(vjust=0.5), size=7)+theme(axis.text.x = element_blank())+ theme(title=element_text(size=20))
+
+
+#Films and documentaries on television
+
+Ans_20183<-c("2018","2021")
+
+All_together<-rep(Ans_20181,each=4)
+
+a<-c("Extremely or quite a bit reliable","Moderately reliable","Slightly reliable","Not at all reliable")
+
+opinions<-rep(a,2)
+
+Values<-c(80.5,17.3,2.2,0.0,65.2,27.4,5.0,2.5)
+
+Pers<-c("80.5%","17.3%","2.2%","","65.2%","27.4%","5.0%","2.5%")
+
+data<-data.frame(All_together,Values,opinions)
+
+
+data$opinions<-factor(data$opinions, levels = c("Extremely or quite a bit reliable","Moderately reliable","Slightly reliable","Not at all reliable"))
+
+q3<-ggplot(data, aes(fill=opinions, y=Values, x=All_together)) + 
+     geom_bar(position="stack", stat="identity")+coord_flip()+
+     ggtitle("Films and documentaries on television")+theme(legend.title=element_blank())+
+     xlab("")+ ylab("") + scale_fill_brewer(palette = "Pastel1")+theme_minimal()+theme(legend.title=element_blank())+theme(axis.text.x = element_text(size = 20))+theme(legend.text=element_text(size=25))+theme(axis.text.y = element_text(size = 25))+
+geom_text(aes(label=Pers), position=position_stack(vjust=0.5), size=7)+theme(axis.text.x= element_blank()) + theme(title=element_text(size=20))
+
+
+ggarrange(q1,q2,q3,common.legend = TRUE, legend="bottom",ncol = 1, nrow = 3)
+
+```
+
+# Session information
+
+```{r session, echo=FALSE}
+sessionInfo()
+```
